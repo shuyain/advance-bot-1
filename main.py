@@ -1,5 +1,4 @@
 import asyncio
-import os
 
 import discord
 from discord.ext import commands
@@ -84,6 +83,22 @@ async def on_ready():
         f"🌐 Servers: {len(bot.guilds)}"
     )
 
+    # Sync slash commands
+
+    try:
+
+        synced = await bot.tree.sync()
+
+        print(
+            f"🔄 Synced {len(synced)} slash commands."
+        )
+
+    except discord.HTTPException as error:
+
+        print(
+            f"❌ Slash command sync failed: {error}"
+        )
+
     print(
         "🚀 Bot is ready!"
     )
@@ -103,9 +118,17 @@ async def main():
 
     await load_cogs()
 
-    async with bot:
+    try:
 
-        await bot.start(TOKEN)
+        await bot.start(
+            TOKEN
+        )
+
+    finally:
+
+        if not bot.is_closed():
+
+            await bot.close()
 
 
 # ==========================================
@@ -116,7 +139,9 @@ if __name__ == "__main__":
 
     try:
 
-        asyncio.run(main())
+        asyncio.run(
+            main()
+        )
 
     except KeyboardInterrupt:
 
