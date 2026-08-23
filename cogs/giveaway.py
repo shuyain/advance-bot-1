@@ -270,26 +270,120 @@ class Giveaway(commands.Cog):
     # CREATE
     # ======================================
 
-    @giveaway.command(
-        name="create",
-        description="Create a giveaway."
+@app_commands.command(
+    name="giveaway-reroll",
+    description="Reroll a giveaway winner."
+)
+@app_commands.describe(
+    message_id="The giveaway message ID."
+)
+async def giveaway_reroll(
+    self,
+    interaction: discord.Interaction,
+    message_id: str
+):
+
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message(
+            embed=error_embed(
+                "No Permission",
+                "You need Administrator permission."
+            ),
+            ephemeral=True
+        )
+        return
+
+    if not message_id.isdigit():
+        await interaction.response.send_message(
+            embed=error_embed(
+                "Invalid Message ID",
+                "Please provide a valid Discord message ID."
+            ),
+            ephemeral=True
+        )
+        return
+
+    message_id_int = int(message_id)
+
+    guild_id = str(
+        interaction.guild.id
     )
-    @app_commands.describe(
-        prize="Giveaway prize.",
-        duration="Duration: 10s, 10m, 2h, 1d.",
-        winners="Number of winners.",
-        channel="Giveaway channel.",
-        image="Optional image URL."
+
+    giveaways = get_giveaway_data(
+        guild_id
     )
-    async def create(
-        self,
-        interaction: discord.Interaction,
-        prize: str,
-        duration: str,
-        winners: int,
-        channel: discord.TextChannel,
-        image: str | None = None
-    ):
+
+    giveaway = None
+    giveaway_id = None
+
+    for gid, data in giveaways.items():
+
+        if data.get("message_id") == message_id_int:
+
+            giveaway = data
+            giveaway_id = gid
+            break
+
+    if giveaway is None:
+        await interaction.response.send_message(
+            embed=error_embed(
+                "Giveaway Not Found",
+                "That message is not a saved giveaway."
+            ),
+            ephemeral=True
+        )
+        return
+
+    if not giveaway.get("ended", False):
+        await interaction.response.send_message(
+            embed=error_embed(
+                "Giveaway Active",
+                "You can only reroll an ended giveaway."
+            ),
+            ephemeral=True
+        )
+        return
+
+    participants = giveaway.get(
+        "participants",
+        []
+    )
+
+    if not participants:
+        await interaction.response.send_message(
+            embed=error_embed(
+                "No Participants",
+                "There are no participants to reroll."
+            ),
+            ephemeral=True
+        )
+        return
+
+    winner_id = random.choice(
+        participants
+    )
+
+    await interaction.response.send_message(
+        embed=success_embed(
+            "Giveaway Rerolled",
+            f"🎉 New winner: <@{winner_id}>"
+        )
+    )
+
+    channel = interaction.guild.get_channel(
+        giveaway.get("channel_id")
+    )
+
+    if channel is not None:
+
+        try:
+            await channel.send(
+                f"🎉 New giveaway winner: <@{winner_id}>!\n"
+                f"Prize: **{giveaway['prize']}**"
+            )
+
+        except discord.HTTPException:
+            pass
 
         if not interaction.user.guild_permissions.administrator:
 
