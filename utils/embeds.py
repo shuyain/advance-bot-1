@@ -3,9 +3,13 @@ import discord
 from config import EMBED_COLOR, FOOTER_TEXT
 
 
+# ==========================================
+# BASE EMBED
+# ==========================================
+
 def base_embed(
     title: str,
-    description: str = None
+    description: str | None = None
 ):
     """Create a standard bot embed."""
 
@@ -22,19 +26,25 @@ def base_embed(
     return embed
 
 
+# ==========================================
+# SUCCESS
+# ==========================================
+
 def success_embed(
     title: str,
     description: str
 ):
     """Create a success embed."""
 
-    embed = base_embed(
+    return base_embed(
         title=f"✅ {title}",
         description=description
     )
 
-    return embed
 
+# ==========================================
+# ERROR
+# ==========================================
 
 def error_embed(
     title: str,
@@ -42,13 +52,15 @@ def error_embed(
 ):
     """Create an error embed."""
 
-    embed = base_embed(
+    return base_embed(
         title=f"❌ {title}",
         description=description
     )
 
-    return embed
 
+# ==========================================
+# INFO
+# ==========================================
 
 def info_embed(
     title: str,
@@ -56,13 +68,15 @@ def info_embed(
 ):
     """Create an information embed."""
 
-    embed = base_embed(
+    return base_embed(
         title=f"ℹ️ {title}",
         description=description
     )
 
-    return embed
 
+# ==========================================
+# MODERATION LOG
+# ==========================================
 
 def moderation_embed(
     action: str,
@@ -71,6 +85,12 @@ def moderation_embed(
     reason: str
 ):
     """Create a moderation activity log embed."""
+
+    # Discord embed field values have a 1024-character limit.
+    safe_reason = str(reason)
+
+    if len(safe_reason) > 1000:
+        safe_reason = safe_reason[:997] + "..."
 
     embed = base_embed(
         title=f"🛡️ Member {action}"
@@ -90,12 +110,16 @@ def moderation_embed(
 
     embed.add_field(
         name="📝 Reason",
-        value=reason,
+        value=safe_reason,
         inline=False
     )
 
     return embed
 
+
+# ==========================================
+# INVITE STATISTICS
+# ==========================================
 
 def invite_embed(
     member: discord.Member,
@@ -135,6 +159,10 @@ def invite_embed(
     return embed
 
 
+# ==========================================
+# INVITE LEADERBOARD
+# ==========================================
+
 def invite_leaderboard_embed(
     entries: list
 ):
@@ -146,7 +174,11 @@ def invite_leaderboard_embed(
     )
 
     if not entries:
-        embed.description = "📂 No invite data available."
+
+        embed.description = (
+            "📂 No invite data available."
+        )
+
         return embed
 
     lines = []
@@ -161,7 +193,9 @@ def invite_leaderboard_embed(
         entries[:10],
         start=1
     ):
+
         user_id = entry["user_id"]
+
         invites = entry["invites"]
 
         medal = medals.get(
@@ -170,13 +204,20 @@ def invite_leaderboard_embed(
         )
 
         lines.append(
-            f"{medal} <@{user_id}> — **{invites}** invites"
+            f"{medal} <@{user_id}> — "
+            f"**{invites}** invites"
         )
 
-    embed.description = "\n".join(lines)
+    embed.description = "\n".join(
+        lines
+    )
 
     return embed
 
+
+# ==========================================
+# GIVEAWAY
+# ==========================================
 
 def giveaway_embed(
     prize: str,
