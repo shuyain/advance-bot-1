@@ -24,6 +24,7 @@ from utils.embeds import (
 # ==========================================
 
 def parse_duration(duration: str):
+    """Convert duration text into seconds."""
 
     match = re.fullmatch(
         r"(\d+)\s*(s|m|h|d)",
@@ -52,10 +53,7 @@ def parse_duration(duration: str):
 
 class GiveawayView(discord.ui.View):
 
-    def __init__(
-        self,
-        giveaway_id: str
-    ):
+    def __init__(self, giveaway_id: str):
 
         super().__init__(
             timeout=None
@@ -63,7 +61,7 @@ class GiveawayView(discord.ui.View):
 
         self.giveaway_id = giveaway_id
 
-        # Unique custom ID for every giveaway
+        # Unique button ID for each giveaway
         self.children[0].custom_id = (
             f"giveaway_enter:{giveaway_id}"
         )
@@ -139,7 +137,10 @@ class GiveawayView(discord.ui.View):
             []
         )
 
-        # Leave giveaway
+        # ==================================
+        # LEAVE
+        # ==================================
+
         if user_id in participants:
 
             participants.remove(
@@ -158,7 +159,10 @@ class GiveawayView(discord.ui.View):
 
             return
 
-        # Enter giveaway
+        # ==================================
+        # ENTER
+        # ==================================
+
         participants.append(
             user_id
         )
@@ -197,7 +201,7 @@ class Giveaway(commands.Cog):
         self.restored = False
 
     # ======================================
-    # RESTORE ACTIVE GIVEAWAYS
+    # RESTORE
     # ======================================
 
     async def restore_giveaways(self):
@@ -243,11 +247,10 @@ class Giveaway(commands.Cog):
                     except Exception as error:
 
                         print(
-                            f"⚠️ Giveaway view restore failed "
+                            f"⚠️ Failed to restore giveaway "
                             f"{giveaway_id}: {error}"
                         )
 
-                # Don't create duplicate task
                 if giveaway_id in self.tasks:
                     continue
 
@@ -270,120 +273,30 @@ class Giveaway(commands.Cog):
     # CREATE
     # ======================================
 
-@app_commands.command(
-    name="giveaway-reroll",
-    description="Reroll a giveaway winner."
-)
-@app_commands.describe(
-    message_id="The giveaway message ID."
-)
-async def giveaway_reroll(
-    self,
-    interaction: discord.Interaction,
-    message_id: str
-):
-
-    if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message(
-            embed=error_embed(
-                "No Permission",
-                "You need Administrator permission."
-            ),
-            ephemeral=True
-        )
-        return
-
-    if not message_id.isdigit():
-        await interaction.response.send_message(
-            embed=error_embed(
-                "Invalid Message ID",
-                "Please provide a valid Discord message ID."
-            ),
-            ephemeral=True
-        )
-        return
-
-    message_id_int = int(message_id)
-
-    guild_id = str(
-        interaction.guild.id
+    @giveaway.command(
+        name="create",
+        description="Create a giveaway."
     )
-
-    giveaways = get_giveaway_data(
-        guild_id
+    @app_commands.describe(
+        prize="Giveaway prize.",
+        duration="Duration: 10s, 10m, 2h, 1d.",
+        winners="Number of winners.",
+        channel="Giveaway channel.",
+        image="Optional image URL."
     )
+    async def create(
+        self,
+        interaction: discord.Interaction,
+        prize: str,
+        duration: str,
+        winners: int,
+        channel: discord.TextChannel,
+        image: str | None = None
+    ):
 
-    giveaway = None
-    giveaway_id = None
-
-    for gid, data in giveaways.items():
-
-        if data.get("message_id") == message_id_int:
-
-            giveaway = data
-            giveaway_id = gid
-            break
-
-    if giveaway is None:
-        await interaction.response.send_message(
-            embed=error_embed(
-                "Giveaway Not Found",
-                "That message is not a saved giveaway."
-            ),
-            ephemeral=True
-        )
-        return
-
-    if not giveaway.get("ended", False):
-        await interaction.response.send_message(
-            embed=error_embed(
-                "Giveaway Active",
-                "You can only reroll an ended giveaway."
-            ),
-            ephemeral=True
-        )
-        return
-
-    participants = giveaway.get(
-        "participants",
-        []
-    )
-
-    if not participants:
-        await interaction.response.send_message(
-            embed=error_embed(
-                "No Participants",
-                "There are no participants to reroll."
-            ),
-            ephemeral=True
-        )
-        return
-
-    winner_id = random.choice(
-        participants
-    )
-
-    await interaction.response.send_message(
-        embed=success_embed(
-            "Giveaway Rerolled",
-            f"🎉 New winner: <@{winner_id}>"
-        )
-    )
-
-    channel = interaction.guild.get_channel(
-        giveaway.get("channel_id")
-    )
-
-    if channel is not None:
-
-        try:
-            await channel.send(
-                f"🎉 New giveaway winner: <@{winner_id}>!\n"
-                f"Prize: **{giveaway['prize']}**"
-            )
-
-        except discord.HTTPException:
-            pass
+        # ==================================
+        # PERMISSION
+        # ==================================
 
         if not interaction.user.guild_permissions.administrator:
 
@@ -396,6 +309,10 @@ async def giveaway_reroll(
             )
 
             return
+
+        # ==================================
+        # DURATION
+        # ==================================
 
         seconds = parse_duration(
             duration
@@ -425,6 +342,10 @@ async def giveaway_reroll(
 
             return
 
+        # ==================================
+        # WINNERS
+        # ==================================
+
         if winners < 1:
 
             await interaction.response.send_message(
@@ -449,9 +370,17 @@ async def giveaway_reroll(
 
             return
 
+        # ==================================
+        # DEFER
+        # ==================================
+
         await interaction.response.defer(
             ephemeral=True
         )
+
+        # ==================================
+        # GIVEAWAY ID
+        # ==================================
 
         giveaway_id = (
             f"{interaction.guild.id}-"
@@ -466,6 +395,10 @@ async def giveaway_reroll(
             f"<t:{end_timestamp}:R>\n"
             f"<t:{end_timestamp}:F>"
         )
+
+        # ==================================
+        # EMBED
+        # ==================================
 
         embed = giveaway_embed(
             prize=prize,
@@ -486,15 +419,17 @@ async def giveaway_reroll(
                 url=image
             )
 
-        view = GiveawayView(
-            giveaway_id
-        )
+        # ==================================
+        # SEND GIVEAWAY
+        # ==================================
 
         try:
 
             message = await channel.send(
                 embed=embed,
-                view=view
+                view=GiveawayView(
+                    giveaway_id
+                )
             )
 
         except discord.Forbidden:
@@ -520,6 +455,10 @@ async def giveaway_reroll(
             )
 
             return
+
+        # ==================================
+        # DATABASE
+        # ==================================
 
         guild_id = str(
             interaction.guild.id
@@ -553,6 +492,10 @@ async def giveaway_reroll(
             giveaways
         )
 
+        # ==================================
+        # FINISH TASK
+        # ==================================
+
         task = asyncio.create_task(
             self.finish_giveaway(
                 interaction.guild.id,
@@ -563,6 +506,10 @@ async def giveaway_reroll(
         self.tasks[
             giveaway_id
         ] = task
+
+        # ==================================
+        # SUCCESS
+        # ==================================
 
         await interaction.followup.send(
             embed=success_embed(
@@ -604,10 +551,17 @@ async def giveaway_reroll(
 
         if remaining > 0:
 
-            await asyncio.sleep(
-                remaining
-            )
+            try:
 
+                await asyncio.sleep(
+                    remaining
+                )
+
+            except asyncio.CancelledError:
+
+                return
+
+        # Reload database
         giveaways = get_giveaway_data(
             guild_id
         )
@@ -637,6 +591,10 @@ async def giveaway_reroll(
             giveaways
         )
 
+        # ==================================
+        # GUILD
+        # ==================================
+
         guild = self.bot.get_guild(
             int(guild_id)
         )
@@ -651,6 +609,10 @@ async def giveaway_reroll(
         if channel is None:
             return
 
+        # ==================================
+        # MESSAGE
+        # ==================================
+
         message = None
 
         try:
@@ -661,10 +623,15 @@ async def giveaway_reroll(
 
         except (
             discord.NotFound,
+            discord.Forbidden,
             discord.HTTPException
         ):
 
             pass
+
+        # ==================================
+        # HOST
+        # ==================================
 
         host = (
             guild.get_member(
@@ -700,10 +667,16 @@ async def giveaway_reroll(
                     inline=False
                 )
 
-                await message.edit(
-                    embed=ended_embed,
-                    view=None
-                )
+                try:
+
+                    await message.edit(
+                        embed=ended_embed,
+                        view=None
+                    )
+
+                except discord.HTTPException:
+
+                    pass
 
             return
 
@@ -726,6 +699,10 @@ async def giveaway_reroll(
             for user_id in selected
         )
 
+        # ==================================
+        # UPDATE EMBED
+        # ==================================
+
         if message:
 
             ended_embed = giveaway_embed(
@@ -747,15 +724,31 @@ async def giveaway_reroll(
                 inline=False
             )
 
-            await message.edit(
-                embed=ended_embed,
-                view=None
+            try:
+
+                await message.edit(
+                    embed=ended_embed,
+                    view=None
+                )
+
+            except discord.HTTPException:
+
+                pass
+
+        # ==================================
+        # WINNER ANNOUNCEMENT
+        # ==================================
+
+        try:
+
+            await channel.send(
+                f"🎉 Congratulations {mentions}!\n"
+                f"You won **{giveaway['prize']}**!"
             )
 
-        await channel.send(
-            f"🎉 Congratulations {mentions}!\n"
-            f"You won **{giveaway['prize']}**!"
-        )
+        except discord.HTTPException:
+
+            pass
 
     # ======================================
     # REROLL
@@ -766,13 +759,17 @@ async def giveaway_reroll(
         description="Reroll an ended giveaway."
     )
     @app_commands.describe(
-        message="The giveaway message."
+        message_id="The giveaway message ID."
     )
     async def reroll(
         self,
         interaction: discord.Interaction,
-        message: discord.Message
+        message_id: str
     ):
+
+        # ==================================
+        # PERMISSION
+        # ==================================
 
         if not interaction.user.guild_permissions.administrator:
 
@@ -785,6 +782,30 @@ async def giveaway_reroll(
             )
 
             return
+
+        # ==================================
+        # MESSAGE ID
+        # ==================================
+
+        if not message_id.isdigit():
+
+            await interaction.response.send_message(
+                embed=error_embed(
+                    "Invalid Message ID",
+                    "Please provide a valid Discord message ID."
+                ),
+                ephemeral=True
+            )
+
+            return
+
+        message_id_int = int(
+            message_id
+        )
+
+        # ==================================
+        # DATABASE
+        # ==================================
 
         guild_id = str(
             interaction.guild.id
@@ -800,11 +821,15 @@ async def giveaway_reroll(
 
             if data.get(
                 "message_id"
-            ) == message.id:
+            ) == message_id_int:
 
                 giveaway = data
 
                 break
+
+        # ==================================
+        # NOT FOUND
+        # ==================================
 
         if giveaway is None:
 
@@ -817,6 +842,10 @@ async def giveaway_reroll(
             )
 
             return
+
+        # ==================================
+        # ACTIVE
+        # ==================================
 
         if not giveaway.get(
             "ended",
@@ -832,6 +861,10 @@ async def giveaway_reroll(
             )
 
             return
+
+        # ==================================
+        # PARTICIPANTS
+        # ==================================
 
         participants = giveaway.get(
             "participants",
@@ -850,6 +883,10 @@ async def giveaway_reroll(
 
             return
 
+        # ==================================
+        # NEW WINNER
+        # ==================================
+
         winner_id = random.choice(
             participants
         )
@@ -861,10 +898,29 @@ async def giveaway_reroll(
             )
         )
 
-        await message.channel.send(
-            f"🎉 New giveaway winner: <@{winner_id}>!\n"
-            f"Prize: **{giveaway['prize']}**"
+        # ==================================
+        # CHANNEL
+        # ==================================
+
+        channel = interaction.guild.get_channel(
+            giveaway.get(
+                "channel_id"
+            )
         )
+
+        if channel is None:
+            return
+
+        try:
+
+            await channel.send(
+                f"🎉 New giveaway winner: <@{winner_id}>!\n"
+                f"Prize: **{giveaway['prize']}**"
+            )
+
+        except discord.HTTPException:
+
+            pass
 
 
 # ==========================================
@@ -881,5 +937,5 @@ async def setup(bot):
         cog
     )
 
-    # Restore saved giveaways when the Cog loads
+    # Restore active giveaways
     await cog.restore_giveaways()
