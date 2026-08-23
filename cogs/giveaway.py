@@ -19,16 +19,11 @@ from utils.embeds import (
 )
 
 
-def parse_duration(duration: str):
-    """
-    Convert duration text into seconds.
+# ==========================================
+# DURATION
+# ==========================================
 
-    Examples:
-    10s
-    10m
-    2h
-    1d
-    """
+def parse_duration(duration: str):
 
     match = re.fullmatch(
         r"(\d+)\s*(s|m|h|d)",
@@ -51,33 +46,32 @@ def parse_duration(duration: str):
     return value * multipliers[unit]
 
 
-def format_duration(seconds: int):
-    """Format seconds into readable duration."""
-
-    if seconds < 60:
-        return f"{seconds}s"
-
-    if seconds < 3600:
-        return f"{seconds // 60}m"
-
-    if seconds < 86400:
-        return f"{seconds // 3600}h"
-
-    return f"{seconds // 86400}d"
-
+# ==========================================
+# GIVEAWAY BUTTON
+# ==========================================
 
 class GiveawayView(discord.ui.View):
 
-    def __init__(self, giveaway_id: str):
-        super().__init__(timeout=None)
+    def __init__(
+        self,
+        giveaway_id: str
+    ):
+
+        super().__init__(
+            timeout=None
+        )
 
         self.giveaway_id = giveaway_id
+
+        # Unique custom ID for every giveaway
+        self.children[0].custom_id = (
+            f"giveaway_enter:{giveaway_id}"
+        )
 
     @discord.ui.button(
         label="Enter Giveaway",
         emoji="🎉",
-        style=discord.ButtonStyle.primary,
-        custom_id="giveaway_enter"
+        style=discord.ButtonStyle.primary
     )
     async def enter_giveaway(
         self,
@@ -85,7 +79,21 @@ class GiveawayView(discord.ui.View):
         button: discord.ui.Button
     ):
 
-        guild_id = str(interaction.guild.id)
+        if interaction.guild is None:
+
+            await interaction.response.send_message(
+                embed=error_embed(
+                    "Server Only",
+                    "This button can only be used inside a server."
+                ),
+                ephemeral=True
+            )
+
+            return
+
+        guild_id = str(
+            interaction.guild.id
+        )
 
         giveaways = get_giveaway_data(
             guild_id
@@ -96,6 +104,7 @@ class GiveawayView(discord.ui.View):
         )
 
         if giveaway is None:
+
             await interaction.response.send_message(
                 embed=error_embed(
                     "Giveaway Not Found",
@@ -103,9 +112,14 @@ class GiveawayView(discord.ui.View):
                 ),
                 ephemeral=True
             )
+
             return
 
-        if giveaway["ended"]:
+        if giveaway.get(
+            "ended",
+            False
+        ):
+
             await interaction.response.send_message(
                 embed=error_embed(
                     "Giveaway Ended",
@@ -113,18 +127,24 @@ class GiveawayView(discord.ui.View):
                 ),
                 ephemeral=True
             )
+
             return
 
-        user_id = str(interaction.user.id)
+        user_id = str(
+            interaction.user.id
+        )
 
         participants = giveaway.setdefault(
             "participants",
             []
         )
 
+        # Leave giveaway
         if user_id in participants:
 
-            participants.remove(user_id)
+            participants.remove(
+                user_id
+            )
 
             save_giveaway_data(
                 guild_id,
@@ -138,7 +158,10 @@ class GiveawayView(discord.ui.View):
 
             return
 
-        participants.append(user_id)
+        # Enter giveaway
+        participants.append(
+            user_id
+        )
 
         save_giveaway_data(
             guild_id,
@@ -151,19 +174,44 @@ class GiveawayView(discord.ui.View):
         )
 
 
+# ==========================================
+# GIVEAWAY COG
+# ==========================================
+
 class Giveaway(commands.Cog):
 
-    def __init__(self, bot):
+    giveaway = app_commands.Group(
+        name="giveaway",
+        description="Giveaway commands."
+    )
+
+    def __init__(
+        self,
+        bot
+    ):
 
         self.bot = bot
+
         self.tasks = {}
 
+        self.restored = False
+
+    # ======================================
+    # RESTORE ACTIVE GIVEAWAYS
+    # ======================================
+
     async def restore_giveaways(self):
-        """Restore saved active giveaways after bot restart."""
+
+        if self.restored:
+            return
+
+        self.restored = True
 
         for guild in self.bot.guilds:
 
-            guild_id = str(guild.id)
+            guild_id = str(
+                guild.id
+            )
 
             giveaways = get_giveaway_data(
                 guild_id
@@ -171,13 +219,37 @@ class Giveaway(commands.Cog):
 
             for giveaway_id, giveaway in giveaways.items():
 
-                if giveaway.get("ended"):
+                if giveaway.get(
+                    "ended",
+                    False
+                ):
                     continue
 
-                self.bot.add_view(
-                    GiveawayView(giveaway_id),
-                    message_id=giveaway.get("message_id")
+                message_id = giveaway.get(
+                    "message_id"
                 )
+
+                if message_id:
+
+                    try:
+
+                        self.bot.add_view(
+                            GiveawayView(
+                                giveaway_id
+                            ),
+                            message_id=message_id
+                        )
+
+                    except Exception as error:
+
+                        print(
+                            f"⚠️ Giveaway view restore failed "
+                            f"{giveaway_id}: {error}"
+                        )
+
+                # Don't create duplicate task
+                if giveaway_id in self.tasks:
+                    continue
 
                 task = asyncio.create_task(
                     self.finish_giveaway(
@@ -186,10 +258,20 @@ class Giveaway(commands.Cog):
                     )
                 )
 
-                self.tasks[giveaway_id] = task
+                self.tasks[
+                    giveaway_id
+                ] = task
 
-    @app_commands.command(
-        name="giveaway-create",
+        print(
+            "🔄 Active giveaways restored."
+        )
+
+    # ======================================
+    # CREATE
+    # ======================================
+
+    @giveaway.command(
+        name="create",
         description="Create a giveaway."
     )
     @app_commands.describe(
@@ -199,7 +281,7 @@ class Giveaway(commands.Cog):
         channel="Giveaway channel.",
         image="Optional image URL."
     )
-    async def giveaway_create(
+    async def create(
         self,
         interaction: discord.Interaction,
         prize: str,
@@ -210,6 +292,7 @@ class Giveaway(commands.Cog):
     ):
 
         if not interaction.user.guild_permissions.administrator:
+
             await interaction.response.send_message(
                 embed=error_embed(
                     "No Permission",
@@ -217,31 +300,39 @@ class Giveaway(commands.Cog):
                 ),
                 ephemeral=True
             )
+
             return
 
-        seconds = parse_duration(duration)
+        seconds = parse_duration(
+            duration
+        )
 
         if seconds is None:
+
             await interaction.response.send_message(
                 embed=error_embed(
                     "Invalid Duration",
-                    "Use formats like `10s`, `10m`, `2h`, or `1d`."
+                    "Use `10s`, `10m`, `2h`, or `1d`."
                 ),
                 ephemeral=True
             )
+
             return
 
         if seconds < 10:
+
             await interaction.response.send_message(
                 embed=error_embed(
                     "Invalid Duration",
-                    "Giveaway duration must be at least 10 seconds."
+                    "Giveaway must run for at least 10 seconds."
                 ),
                 ephemeral=True
             )
+
             return
 
         if winners < 1:
+
             await interaction.response.send_message(
                 embed=error_embed(
                     "Invalid Winners",
@@ -249,9 +340,11 @@ class Giveaway(commands.Cog):
                 ),
                 ephemeral=True
             )
+
             return
 
         if winners > 100:
+
             await interaction.response.send_message(
                 embed=error_embed(
                     "Invalid Winners",
@@ -259,14 +352,16 @@ class Giveaway(commands.Cog):
                 ),
                 ephemeral=True
             )
+
             return
 
         await interaction.response.defer(
             ephemeral=True
         )
 
-        giveaway_id = str(
-            int(time.time() * 1000)
+        giveaway_id = (
+            f"{interaction.guild.id}-"
+            f"{int(time.time() * 1000)}"
         )
 
         end_timestamp = int(
@@ -292,17 +387,20 @@ class Giveaway(commands.Cog):
         )
 
         if image:
+
             embed.set_image(
                 url=image
             )
+
+        view = GiveawayView(
+            giveaway_id
+        )
 
         try:
 
             message = await channel.send(
                 embed=embed,
-                view=GiveawayView(
-                    giveaway_id
-                )
+                view=view
             )
 
         except discord.Forbidden:
@@ -338,13 +436,21 @@ class Giveaway(commands.Cog):
         )
 
         giveaways[giveaway_id] = {
+
             "message_id": message.id,
+
             "channel_id": channel.id,
+
             "prize": prize,
+
             "winners": winners,
+
             "host_id": interaction.user.id,
+
             "end_time": end_timestamp,
+
             "participants": [],
+
             "ended": False
         }
 
@@ -360,7 +466,9 @@ class Giveaway(commands.Cog):
             )
         )
 
-        self.tasks[giveaway_id] = task
+        self.tasks[
+            giveaway_id
+        ] = task
 
         await interaction.followup.send(
             embed=success_embed(
@@ -370,13 +478,19 @@ class Giveaway(commands.Cog):
             ephemeral=True
         )
 
+    # ======================================
+    # FINISH GIVEAWAY
+    # ======================================
+
     async def finish_giveaway(
         self,
         guild_id: int,
         giveaway_id: str
     ):
 
-        guild_id = str(guild_id)
+        guild_id = str(
+            guild_id
+        )
 
         giveaways = get_giveaway_data(
             guild_id
@@ -395,6 +509,7 @@ class Giveaway(commands.Cog):
         )
 
         if remaining > 0:
+
             await asyncio.sleep(
                 remaining
             )
@@ -410,7 +525,10 @@ class Giveaway(commands.Cog):
         if giveaway is None:
             return
 
-        if giveaway["ended"]:
+        if giveaway.get(
+            "ended",
+            False
+        ):
             return
 
         participants = giveaway.get(
@@ -439,12 +557,31 @@ class Giveaway(commands.Cog):
         if channel is None:
             return
 
+        message = None
+
         try:
+
             message = await channel.fetch_message(
                 giveaway["message_id"]
             )
-        except discord.HTTPException:
-            message = None
+
+        except (
+            discord.NotFound,
+            discord.HTTPException
+        ):
+
+            pass
+
+        host = (
+            guild.get_member(
+                giveaway["host_id"]
+            )
+            or guild.me
+        )
+
+        # ==================================
+        # NO PARTICIPANTS
+        # ==================================
 
         if not participants:
 
@@ -454,9 +591,7 @@ class Giveaway(commands.Cog):
                     prize=giveaway["prize"],
                     winners=giveaway["winners"],
                     end_text="Ended",
-                    host=guild.get_member(
-                        giveaway["host_id"]
-                    ) or guild.me
+                    host=host
                 )
 
                 ended_embed.add_field(
@@ -477,6 +612,10 @@ class Giveaway(commands.Cog):
                 )
 
             return
+
+        # ==================================
+        # SELECT WINNERS
+        # ==================================
 
         winner_count = min(
             giveaway["winners"],
@@ -499,9 +638,7 @@ class Giveaway(commands.Cog):
                 prize=giveaway["prize"],
                 winners=giveaway["winners"],
                 end_text="Ended",
-                host=guild.get_member(
-                    giveaway["host_id"]
-                ) or guild.me
+                host=host
             )
 
             ended_embed.add_field(
@@ -526,20 +663,25 @@ class Giveaway(commands.Cog):
             f"You won **{giveaway['prize']}**!"
         )
 
-    @app_commands.command(
-        name="giveaway-reroll",
-        description="Reroll a giveaway winner."
+    # ======================================
+    # REROLL
+    # ======================================
+
+    @giveaway.command(
+        name="reroll",
+        description="Reroll an ended giveaway."
     )
     @app_commands.describe(
         message="The giveaway message."
     )
-    async def giveaway_reroll(
+    async def reroll(
         self,
         interaction: discord.Interaction,
         message: discord.Message
     ):
 
         if not interaction.user.guild_permissions.administrator:
+
             await interaction.response.send_message(
                 embed=error_embed(
                     "No Permission",
@@ -547,6 +689,7 @@ class Giveaway(commands.Cog):
                 ),
                 ephemeral=True
             )
+
             return
 
         guild_id = str(
@@ -558,17 +701,19 @@ class Giveaway(commands.Cog):
         )
 
         giveaway = None
-        giveaway_id = None
 
-        for gid, data in giveaways.items():
+        for data in giveaways.values():
 
-            if data["message_id"] == message.id:
+            if data.get(
+                "message_id"
+            ) == message.id:
 
                 giveaway = data
-                giveaway_id = gid
+
                 break
 
         if giveaway is None:
+
             await interaction.response.send_message(
                 embed=error_embed(
                     "Giveaway Not Found",
@@ -576,9 +721,14 @@ class Giveaway(commands.Cog):
                 ),
                 ephemeral=True
             )
+
             return
 
-        if not giveaway["ended"]:
+        if not giveaway.get(
+            "ended",
+            False
+        ):
+
             await interaction.response.send_message(
                 embed=error_embed(
                     "Giveaway Active",
@@ -586,6 +736,7 @@ class Giveaway(commands.Cog):
                 ),
                 ephemeral=True
             )
+
             return
 
         participants = giveaway.get(
@@ -594,6 +745,7 @@ class Giveaway(commands.Cog):
         )
 
         if not participants:
+
             await interaction.response.send_message(
                 embed=error_embed(
                     "No Participants",
@@ -601,6 +753,7 @@ class Giveaway(commands.Cog):
                 ),
                 ephemeral=True
             )
+
             return
 
         winner_id = random.choice(
@@ -620,7 +773,19 @@ class Giveaway(commands.Cog):
         )
 
 
+# ==========================================
+# SETUP
+# ==========================================
+
 async def setup(bot):
-    await bot.add_cog(
-        Giveaway(bot)
+
+    cog = Giveaway(
+        bot
     )
+
+    await bot.add_cog(
+        cog
+    )
+
+    # Restore saved giveaways when the Cog loads
+    await cog.restore_giveaways()
