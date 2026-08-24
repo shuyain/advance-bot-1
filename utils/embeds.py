@@ -20,7 +20,7 @@ def base_embed(
     )
 
     embed.set_footer(
-        text=FOOTER_TEXT
+        text=Fenix
     )
 
     return embed
