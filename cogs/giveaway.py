@@ -28,11 +28,14 @@ def parse_duration(duration: str):
     Convert duration text into seconds.
 
     Examples:
-    10s
-    10m
-    2h
-    1d
+        10s
+        10m
+        2h
+        1d
     """
+
+    if not isinstance(duration, str):
+        return None
 
     match = re.fullmatch(
         r"(\d+)\s*(s|m|h|d)",
@@ -66,7 +69,7 @@ class GiveawayView(discord.ui.View):
 
         self.giveaway_id = giveaway_id
 
-        # Unique custom ID for every giveaway
+        # Give every giveaway its own unique button ID
         for child in self.children:
             if isinstance(child, discord.ui.Button):
                 child.custom_id = (
@@ -83,8 +86,10 @@ class GiveawayView(discord.ui.View):
         interaction: discord.Interaction,
         button: discord.ui.Button
     ):
+        # ==================================
+        # SERVER ONLY
+        # ==================================
 
-        # Server only
         if interaction.guild is None:
 
             await interaction.response.send_message(
@@ -101,6 +106,10 @@ class GiveawayView(discord.ui.View):
             interaction.guild.id
         )
 
+        # ==================================
+        # LOAD GIVEAWAYS
+        # ==================================
+
         giveaways = get_giveaway_data(
             guild_id
         )
@@ -108,6 +117,10 @@ class GiveawayView(discord.ui.View):
         giveaway = giveaways.get(
             self.giveaway_id
         )
+
+        # ==================================
+        # GIVEAWAY NOT FOUND
+        # ==================================
 
         if giveaway is None:
 
@@ -121,7 +134,14 @@ class GiveawayView(discord.ui.View):
 
             return
 
-        if giveaway.get("ended", False):
+        # ==================================
+        # GIVEAWAY ENDED
+        # ==================================
+
+        if giveaway.get(
+            "ended",
+            False
+        ):
 
             await interaction.response.send_message(
                 embed=error_embed(
@@ -132,6 +152,10 @@ class GiveawayView(discord.ui.View):
             )
 
             return
+
+        # ==================================
+        # PARTICIPANTS
+        # ==================================
 
         user_id = str(
             interaction.user.id
@@ -223,6 +247,9 @@ class Giveaway(commands.Cog):
                 guild_id
             )
 
+            if not isinstance(giveaways, dict):
+                continue
+
             for giveaway_id, giveaway in giveaways.items():
 
                 if giveaway.get(
@@ -231,11 +258,14 @@ class Giveaway(commands.Cog):
                 ):
                     continue
 
+                # ==================================
+                # RESTORE BUTTON
+                # ==================================
+
                 message_id = giveaway.get(
                     "message_id"
                 )
 
-                # Restore persistent button
                 if message_id:
 
                     try:
@@ -254,7 +284,10 @@ class Giveaway(commands.Cog):
                             f"{giveaway_id}: {error}"
                         )
 
-                # Prevent duplicate task
+                # ==================================
+                # RESTORE FINISH TASK
+                # ==================================
+
                 if giveaway_id in self.tasks:
                     continue
 
@@ -274,7 +307,7 @@ class Giveaway(commands.Cog):
         )
 
     # ======================================
-    # CREATE
+    # CREATE GIVEAWAY
     # ======================================
 
     @giveaway.command(
@@ -297,6 +330,22 @@ class Giveaway(commands.Cog):
         channel: discord.TextChannel,
         image: str | None = None
     ):
+
+        # ==================================
+        # SERVER CHECK
+        # ==================================
+
+        if interaction.guild is None:
+
+            await interaction.response.send_message(
+                embed=error_embed(
+                    "Server Only",
+                    "This command can only be used inside a server."
+                ),
+                ephemeral=True
+            )
+
+            return
 
         # ==================================
         # PERMISSION
@@ -401,7 +450,7 @@ class Giveaway(commands.Cog):
         )
 
         # ==================================
-        # EMBED
+        # CREATE EMBED
         # ==================================
 
         embed = giveaway_embed(
@@ -478,6 +527,9 @@ class Giveaway(commands.Cog):
             guild_id
         )
 
+        if not isinstance(giveaways, dict):
+            giveaways = {}
+
         giveaways[giveaway_id] = {
 
             "message_id": message.id,
@@ -551,6 +603,9 @@ class Giveaway(commands.Cog):
             guild_id
         )
 
+        if not isinstance(giveaways, dict):
+            return
+
         giveaway = giveaways.get(
             giveaway_id
         )
@@ -559,11 +614,14 @@ class Giveaway(commands.Cog):
             return
 
         # ==================================
-        # WAIT
+        # WAIT UNTIL END
         # ==================================
 
         remaining = (
-            giveaway["end_time"]
+            giveaway.get(
+                "end_time",
+                int(time.time())
+            )
             - int(time.time())
         )
 
@@ -580,6 +638,9 @@ class Giveaway(commands.Cog):
         giveaways = get_giveaway_data(
             guild_id
         )
+
+        if not isinstance(giveaways, dict):
+            return
 
         giveaway = giveaways.get(
             giveaway_id
@@ -626,14 +687,16 @@ class Giveaway(commands.Cog):
         # ==================================
 
         channel = guild.get_channel(
-            giveaway["channel_id"]
+            giveaway.get(
+                "channel_id"
+            )
         )
 
         if channel is None:
             return
 
         # ==================================
-        # GET MESSAGE
+        # GET GIVEAWAY MESSAGE
         # ==================================
 
         message = None
@@ -641,7 +704,9 @@ class Giveaway(commands.Cog):
         try:
 
             message = await channel.fetch_message(
-                giveaway["message_id"]
+                giveaway.get(
+                    "message_id"
+                )
             )
 
         except (
@@ -657,7 +722,9 @@ class Giveaway(commands.Cog):
 
         host = (
             guild.get_member(
-                giveaway["host_id"]
+                giveaway.get(
+                    "host_id"
+                )
             )
             or guild.me
         )
@@ -671,8 +738,14 @@ class Giveaway(commands.Cog):
             if message:
 
                 ended_embed = giveaway_embed(
-                    prize=giveaway["prize"],
-                    winners=giveaway["winners"],
+                    prize=giveaway.get(
+                        "prize",
+                        "Unknown"
+                    ),
+                    winners=giveaway.get(
+                        "winners",
+                        1
+                    ),
                     end_text="Ended",
                     host=host
                 )
@@ -707,7 +780,12 @@ class Giveaway(commands.Cog):
         # ==================================
 
         winner_count = min(
-            giveaway["winners"],
+            int(
+                giveaway.get(
+                    "winners",
+                    1
+                )
+            ),
             len(participants)
         )
 
@@ -722,14 +800,20 @@ class Giveaway(commands.Cog):
         )
 
         # ==================================
-        # UPDATE GIVEAWAY MESSAGE
+        # UPDATE MESSAGE
         # ==================================
 
         if message:
 
             ended_embed = giveaway_embed(
-                prize=giveaway["prize"],
-                winners=giveaway["winners"],
+                prize=giveaway.get(
+                    "prize",
+                    "Unknown"
+                ),
+                winners=giveaway.get(
+                    "winners",
+                    1
+                ),
                 end_text="Ended",
                 host=host
             )
@@ -758,14 +842,14 @@ class Giveaway(commands.Cog):
                 pass
 
         # ==================================
-        # ANNOUNCE WINNER
+        # ANNOUNCE WINNERS
         # ==================================
 
         try:
 
             await channel.send(
                 f"🎉 Congratulations {mentions}!\n"
-                f"You won **{giveaway['prize']}**!"
+                f"You won **{giveaway.get('prize', 'Unknown')}**!"
             )
 
         except discord.HTTPException:
@@ -788,6 +872,22 @@ class Giveaway(commands.Cog):
         interaction: discord.Interaction,
         message_id: str
     ):
+
+        # ==================================
+        # SERVER CHECK
+        # ==================================
+
+        if interaction.guild is None:
+
+            await interaction.response.send_message(
+                embed=error_embed(
+                    "Server Only",
+                    "This command can only be used inside a server."
+                ),
+                ephemeral=True
+            )
+
+            return
 
         # ==================================
         # PERMISSION
@@ -836,6 +936,18 @@ class Giveaway(commands.Cog):
         giveaways = get_giveaway_data(
             guild_id
         )
+
+        if not isinstance(giveaways, dict):
+
+            await interaction.response.send_message(
+                embed=error_embed(
+                    "Giveaway Not Found",
+                    "No saved giveaways were found."
+                ),
+                ephemeral=True
+            )
+
+            return
 
         giveaway = None
 
@@ -906,7 +1018,7 @@ class Giveaway(commands.Cog):
             return
 
         # ==================================
-        # NEW WINNER
+        # SELECT NEW WINNER
         # ==================================
 
         winner_id = random.choice(
@@ -921,7 +1033,8 @@ class Giveaway(commands.Cog):
             embed=success_embed(
                 "Giveaway Rerolled",
                 f"🎉 New winner: <@{winner_id}>"
-            )
+            ),
+            ephemeral=True
         )
 
         # ==================================
@@ -929,7 +1042,9 @@ class Giveaway(commands.Cog):
         # ==================================
 
         channel = interaction.guild.get_channel(
-            giveaway.get("channel_id")
+            giveaway.get(
+                "channel_id"
+            )
         )
 
         if channel is not None:
@@ -938,7 +1053,7 @@ class Giveaway(commands.Cog):
 
                 await channel.send(
                     f"🎉 New giveaway winner: <@{winner_id}>!\n"
-                    f"Prize: **{giveaway['prize']}**"
+                    f"Prize: **{giveaway.get('prize', 'Unknown')}**"
                 )
 
             except discord.HTTPException:
