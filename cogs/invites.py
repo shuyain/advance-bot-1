@@ -19,35 +19,33 @@ class Invites(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
-
-        # guild_id -> {
-        #     invite_code: uses
-        # }
         self.invite_cache = {}
 
     # ==========================================
-    # REFRESH INVITE CACHE
+    # REFRESH INVITES
     # ==========================================
 
-    async def refresh_invites(
-        self,
-        guild: discord.Guild
-    ):
-        """Refresh Discord invite usage cache."""
+    async def refresh_invites(self, guild: discord.Guild):
 
         try:
             invites = await guild.invites()
 
-        except (
-            discord.Forbidden,
-            discord.HTTPException
-        ):
+        except discord.Forbidden:
+            print(
+                f"⚠️ Cannot read invites in {guild.name}: "
+                "Missing Manage Guild permission."
+            )
+            return
+
+        except discord.HTTPException as error:
+            print(
+                f"⚠️ Failed to refresh invites in "
+                f"{guild.name}: {error}"
+            )
             return
 
         self.invite_cache[guild.id] = {
-            invite.code: (
-                invite.uses or 0
-            )
+            invite.code: (invite.uses or 0)
             for invite in invites
         }
 
@@ -61,9 +59,7 @@ class Invites(commands.Cog):
         for guild in self.bot.guilds:
             await self.refresh_invites(guild)
 
-        print(
-            "🔗 Invite tracking initialized."
-        )
+        print("✅ Invite tracking initialized.")
 
     # ==========================================
     # INVITE CREATE
@@ -114,10 +110,14 @@ class Invites(commands.Cog):
         try:
             current_invites = await guild.invites()
 
-        except (
-            discord.Forbidden,
-            discord.HTTPException
-        ):
+        except discord.Forbidden:
+            print(
+                f"⚠️ Missing Manage Guild permission "
+                f"in {guild.name}."
+            )
+            return
+
+        except discord.HTTPException:
             return
 
         old_invites = self.invite_cache.get(
@@ -126,10 +126,6 @@ class Invites(commands.Cog):
         )
 
         used_invite = None
-
-        # ======================================
-        # FIND USED INVITE
-        # ======================================
 
         for invite in current_invites:
 
@@ -144,14 +140,9 @@ class Invites(commands.Cog):
                 used_invite = invite
                 break
 
-        # ======================================
-        # UPDATE CACHE
-        # ======================================
-
+        # Update cache immediately
         self.invite_cache[guild.id] = {
-            invite.code: (
-                invite.uses or 0
-            )
+            invite.code: (invite.uses or 0)
             for invite in current_invites
         }
 
@@ -162,10 +153,6 @@ class Invites(commands.Cog):
 
         if inviter is None:
             return
-
-        # ======================================
-        # LOAD DATA
-        # ======================================
 
         guild_id = str(
             guild.id
@@ -196,6 +183,18 @@ class Invites(commands.Cog):
             }
         )
 
+        if not isinstance(
+            user_data,
+            dict
+        ):
+            user_data = {
+                "joined": 0,
+                "left": 0,
+                "members": []
+            }
+
+            data[inviter_id] = user_data
+
         user_data.setdefault(
             "joined",
             0
@@ -212,21 +211,21 @@ class Invites(commands.Cog):
         )
 
         # ======================================
-        # PREVENT DUPLICATE
+        # ADD MEMBER
         # ======================================
 
         if member_id not in user_data["members"]:
-
-            user_data["joined"] += 1
 
             user_data["members"].append(
                 member_id
             )
 
-            save_invite_data(
-                guild_id,
-                data
-            )
+            user_data["joined"] += 1
+
+        save_invite_data(
+            guild_id,
+            data
+        )
 
     # ==========================================
     # MEMBER LEAVE
@@ -271,10 +270,7 @@ class Invites(commands.Cog):
 
             if member_id in members:
 
-                inviter_id = (
-                    current_inviter_id
-                )
-
+                inviter_id = current_inviter_id
                 break
 
         if inviter_id is None:
@@ -309,13 +305,13 @@ class Invites(commands.Cog):
         # UPDATE LEAVE
         # ======================================
 
-        inviter_data["left"] += 1
-
         if member_id in inviter_data["members"]:
 
             inviter_data["members"].remove(
                 member_id
             )
+
+            inviter_data["left"] += 1
 
         save_invite_data(
             guild_id,
@@ -331,7 +327,7 @@ class Invites(commands.Cog):
         description="Show invite statistics."
     )
     @app_commands.describe(
-        member="Check another member's invites."
+        member="The member whose invite statistics you want to see."
     )
     async def invites(
         self,
@@ -356,11 +352,14 @@ class Invites(commands.Cog):
             return
 
         # ======================================
-        # DEFER
+        # DEFER IMMEDIATELY
         # ======================================
 
         try:
-            await interaction.response.defer()
+
+            await interaction.response.defer(
+                ephemeral=True
+            )
 
         except discord.InteractionResponded:
             return
@@ -369,23 +368,40 @@ class Invites(commands.Cog):
         # TARGET MEMBER
         # ======================================
 
-        target = (
-            member
-            if member is not None
-            else interaction.user
+        target = member or interaction.user
+
+        guild_id = str(
+            interaction.guild.id
         )
 
         # ======================================
         # LOAD DATA
         # ======================================
 
-        guild_id = str(
-            interaction.guild.id
-        )
+        try:
 
-        data = get_invite_data(
-            guild_id
-        )
+            data = get_invite_data(
+                guild_id
+            )
+
+        except Exception as error:
+
+            print(
+                f"❌ Invite database error: {error}"
+            )
+
+            await interaction.edit_original_response(
+                embed=error_embed(
+                    "Database Error",
+                    "Could not load invite statistics."
+                )
+            )
+
+            return
+
+        # ======================================
+        # USER DATA
+        # ======================================
 
         user_id = str(
             target.id
@@ -410,10 +426,6 @@ class Invites(commands.Cog):
                 "members": []
             }
 
-        # ======================================
-        # STATS
-        # ======================================
-
         joined = int(
             user_data.get(
                 "joined",
@@ -437,27 +449,44 @@ class Invites(commands.Cog):
         # CREATE EMBED
         # ======================================
 
-        embed = invite_embed(
-            member=target,
-            total=total,
-            joined=joined,
-            left=left
-        )
+        try:
+
+            embed = invite_embed(
+                member=target,
+                total=total,
+                joined=joined,
+                left=left
+            )
+
+        except Exception as error:
+
+            print(
+                f"❌ invite_embed error: {error}"
+            )
+
+            await interaction.edit_original_response(
+                embed=error_embed(
+                    "Invite Error",
+                    "Could not create the invite statistics."
+                )
+            )
+
+            return
 
         # ======================================
-        # SEND PUBLIC RESPONSE
+        # SEND RESULT
         # ======================================
 
         try:
 
-            await interaction.followup.send(
+            await interaction.edit_original_response(
                 embed=embed
             )
 
         except discord.HTTPException as error:
 
             print(
-                f"❌ /invites response failed: {error}"
+                f"❌ Failed to send invite result: {error}"
             )
 
     # ==========================================
@@ -494,22 +523,40 @@ class Invites(commands.Cog):
         # ======================================
 
         try:
+
             await interaction.response.defer()
 
         except discord.InteractionResponded:
             return
 
-        # ======================================
-        # LOAD DATA
-        # ======================================
-
         guild_id = str(
             interaction.guild.id
         )
 
-        data = get_invite_data(
-            guild_id
-        )
+        # ======================================
+        # LOAD DATA
+        # ======================================
+
+        try:
+
+            data = get_invite_data(
+                guild_id
+            )
+
+        except Exception as error:
+
+            print(
+                f"❌ Leaderboard database error: {error}"
+            )
+
+            await interaction.edit_original_response(
+                embed=error_embed(
+                    "Database Error",
+                    "Could not load invite leaderboard."
+                )
+            )
+
+            return
 
         entries = []
 
@@ -544,6 +591,9 @@ class Invites(commands.Cog):
                 0
             )
 
+            if total <= 0:
+                continue
+
             entries.append(
                 {
                     "user_id": user_id,
@@ -551,154 +601,51 @@ class Invites(commands.Cog):
                 }
             )
 
-        # ======================================
-        # SORT
-        # ======================================
-
         entries.sort(
             key=lambda item: item["invites"],
             reverse=True
         )
 
         # ======================================
-        # CREATE EMBED
-        # ======================================
-
-        embed = invite_leaderboard_embed(
-            entries[:10]
-        )
-
-        # ======================================
-        # SEND PUBLIC RESPONSE
+        # EMBED
         # ======================================
 
         try:
 
-            await interaction.followup.send(
+            embed = invite_leaderboard_embed(
+                entries[:10]
+            )
+
+        except Exception as error:
+
+            print(
+                f"❌ Leaderboard embed error: {error}"
+            )
+
+            await interaction.edit_original_response(
+                embed=error_embed(
+                    "Leaderboard Error",
+                    "Could not create the leaderboard."
+                )
+            )
+
+            return
+
+        # ======================================
+        # SEND
+        # ======================================
+
+        try:
+
+            await interaction.edit_original_response(
                 embed=embed
             )
 
         except discord.HTTPException as error:
 
             print(
-                f"❌ Leaderboard response failed: {error}"
+                f"❌ Failed to send leaderboard: {error}"
             )
-
-    # ==========================================
-    # /INVITES-RESET
-    # ==========================================
-
-    @app_commands.command(
-        name="invites-reset",
-        description="Reset a member's invite statistics."
-    )
-    @app_commands.describe(
-        member="Member whose invite statistics should be reset."
-    )
-    async def invites_reset(
-        self,
-        interaction: discord.Interaction,
-        member: discord.Member
-    ):
-
-        # ======================================
-        # SERVER CHECK
-        # ======================================
-
-        if interaction.guild is None:
-
-            await interaction.response.send_message(
-                embed=error_embed(
-                    "Server Only",
-                    "This command can only be used inside a server."
-                ),
-                ephemeral=True
-            )
-
-            return
-
-        # ======================================
-        # ADMIN CHECK
-        # ======================================
-
-        if not interaction.user.guild_permissions.administrator:
-
-            await interaction.response.send_message(
-                embed=error_embed(
-                    "No Permission",
-                    "You need Administrator permission."
-                ),
-                ephemeral=True
-            )
-
-            return
-
-        # ======================================
-        # DEFER
-        # ======================================
-
-        await interaction.response.defer(
-            ephemeral=True
-        )
-
-        # ======================================
-        # LOAD DATA
-        # ======================================
-
-        guild_id = str(
-            interaction.guild.id
-        )
-
-        data = get_invite_data(
-            guild_id
-        )
-
-        user_id = str(
-            member.id
-        )
-
-        if user_id not in data:
-
-            await interaction.followup.send(
-                embed=error_embed(
-                    "No Data",
-                    f"No invite data found for {member.mention}."
-                ),
-                ephemeral=True
-            )
-
-            return
-
-        # ======================================
-        # RESET
-        # ======================================
-
-        data[user_id] = {
-            "joined": 0,
-            "left": 0,
-            "members": []
-        }
-
-        save_invite_data(
-            guild_id,
-            data
-        )
-
-        # ======================================
-        # SUCCESS
-        # ======================================
-
-        await interaction.followup.send(
-            embed=discord.Embed(
-                title="Invite Data Reset",
-                description=(
-                    f"Invite statistics for "
-                    f"{member.mention} have been reset."
-                ),
-                color=discord.Color.green()
-            ),
-            ephemeral=True
-        )
 
 
 # ==========================================
