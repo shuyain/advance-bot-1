@@ -33,13 +33,16 @@ class Invites(commands.Cog):
         self,
         guild: discord.Guild
     ):
-        """Refresh invite usage cache."""
 
         try:
 
             invites = await guild.invites()
 
         except discord.Forbidden:
+
+            print(
+                f"⚠️ Cannot read invites in {guild.name}"
+            )
 
             return
 
@@ -76,7 +79,6 @@ class Invites(commands.Cog):
     ):
 
         if invite.guild is None:
-
             return
 
         await self.refresh_invites(
@@ -94,7 +96,6 @@ class Invites(commands.Cog):
     ):
 
         if invite.guild is None:
-
             return
 
         await self.refresh_invites(
@@ -155,13 +156,11 @@ class Invites(commands.Cog):
         }
 
         if used_invite is None:
-
             return
 
         inviter = used_invite.inviter
 
         if inviter is None:
-
             return
 
         guild_id = str(
@@ -247,7 +246,7 @@ class Invites(commands.Cog):
 
         inviter_id = None
 
-        # Find which inviter invited this member
+        # Find inviter
 
         for current_inviter_id, user_data in data.items():
 
@@ -255,7 +254,6 @@ class Invites(commands.Cog):
                 user_data,
                 dict
             ):
-
                 continue
 
             members = user_data.get(
@@ -270,7 +268,6 @@ class Invites(commands.Cog):
                 break
 
         if inviter_id is None:
-
             return
 
         inviter_data = data.get(
@@ -281,7 +278,6 @@ class Invites(commands.Cog):
             inviter_data,
             dict
         ):
-
             return
 
         inviter_data.setdefault(
@@ -317,17 +313,25 @@ class Invites(commands.Cog):
         )
 
     # ==========================================
-    # /INVITES
+    # /INVITS
     # ==========================================
 
     @app_commands.command(
-        name="invites",
-        description="Show your invite statistics."
+        name="invits",
+        description="Show invite statistics."
+    )
+    @app_commands.describe(
+        member="Optional member to check."
     )
     async def invites(
         self,
-        interaction: discord.Interaction
+        interaction: discord.Interaction,
+        member: discord.Member | None = None
     ):
+
+        # ======================================
+        # SERVER CHECK
+        # ======================================
 
         if interaction.guild is None:
 
@@ -341,16 +345,33 @@ class Invites(commands.Cog):
 
             return
 
+        # ======================================
+        # DEFER
+        # ======================================
+
+        # Prevent "The application did not respond"
+        await interaction.response.defer()
+
+        # ======================================
+        # TARGET MEMBER
+        # ======================================
+
+        target = member or interaction.user
+
         guild_id = str(
             interaction.guild.id
         )
+
+        # ======================================
+        # LOAD DATA
+        # ======================================
 
         data = get_invite_data(
             guild_id
         )
 
         user_id = str(
-            interaction.user.id
+            target.id
         )
 
         user_data = data.get(
@@ -361,6 +382,10 @@ class Invites(commands.Cog):
                 "members": []
             }
         )
+
+        # ======================================
+        # STATS
+        # ======================================
 
         joined = user_data.get(
             "joined",
@@ -377,16 +402,23 @@ class Invites(commands.Cog):
             0
         )
 
+        # ======================================
+        # EMBED
+        # ======================================
+
         embed = invite_embed(
-            member=interaction.user,
+            member=target,
             total=total,
             joined=joined,
             left=left
         )
 
-        await interaction.response.send_message(
-            embed=embed,
-            ephemeral=True
+        # ======================================
+        # PUBLIC RESPONSE
+        # ======================================
+
+        await interaction.followup.send(
+            embed=embed
         )
 
     # ==========================================
@@ -402,6 +434,10 @@ class Invites(commands.Cog):
         interaction: discord.Interaction
     ):
 
+        # ======================================
+        # SERVER CHECK
+        # ======================================
+
         if interaction.guild is None:
 
             await interaction.response.send_message(
@@ -414,6 +450,16 @@ class Invites(commands.Cog):
 
             return
 
+        # ======================================
+        # DEFER
+        # ======================================
+
+        await interaction.response.defer()
+
+        # ======================================
+        # LOAD DATA
+        # ======================================
+
         guild_id = str(
             interaction.guild.id
         )
@@ -424,13 +470,16 @@ class Invites(commands.Cog):
 
         entries = []
 
+        # ======================================
+        # BUILD LEADERBOARD
+        # ======================================
+
         for user_id, user_data in data.items():
 
             if not isinstance(
                 user_data,
                 dict
             ):
-
                 continue
 
             joined = user_data.get(
@@ -455,16 +504,28 @@ class Invites(commands.Cog):
                 }
             )
 
+        # ======================================
+        # SORT
+        # ======================================
+
         entries.sort(
             key=lambda item: item["invites"],
             reverse=True
         )
 
+        # ======================================
+        # EMBED
+        # ======================================
+
         embed = invite_leaderboard_embed(
             entries[:10]
         )
 
-        await interaction.response.send_message(
+        # ======================================
+        # PUBLIC RESPONSE
+        # ======================================
+
+        await interaction.followup.send(
             embed=embed
         )
 
