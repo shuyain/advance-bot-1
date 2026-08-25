@@ -20,7 +20,7 @@ class General(commands.Cog):
     )
     @app_commands.describe(
         channel="The channel where the message will be sent.",
-        message="Use | between sections to create spacing."
+        message="Use | for a new line and || for a blank line."
     )
     async def send(
         self,
@@ -49,17 +49,27 @@ class General(commands.Cog):
         # FORMAT MESSAGE
         # ======================================
 
-        # Convert | into blank lines
+        # || = blank line
+        # |  = normal new line
         formatted_message = message.replace(
-            "|",
+            "||",
             "\n\n"
+        ).replace(
+            "|",
+            "\n"
         )
+
+        # ======================================
+        # CLEAN EXTRA SPACES
+        # ======================================
+
+        formatted_message = formatted_message.strip()
 
         # ======================================
         # EMPTY MESSAGE CHECK
         # ======================================
 
-        if not formatted_message.strip():
+        if not formatted_message:
 
             await interaction.response.send_message(
                 embed=error_embed(
@@ -88,7 +98,7 @@ class General(commands.Cog):
             return
 
         # ======================================
-        # SEND
+        # SEND MESSAGE
         # ======================================
 
         try:
