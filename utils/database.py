@@ -391,4 +391,3 @@ def get_all_games(
     )
 
     return games
-```
